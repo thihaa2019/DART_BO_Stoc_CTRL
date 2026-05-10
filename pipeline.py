@@ -1864,6 +1864,22 @@ def render_run_trainer_sh(df: int, cfg: dict, k: int) -> str:
     return "\n".join(lines) + "\n"
 
 
+def bo_initial_sample_size(dim: int) -> int:
+    return int(np.floor(6 * np.sqrt(dim)))
+
+
+def bo_budget_nmax(dim: int, cfg: dict) -> int:
+    n0 = bo_initial_sample_size(dim)
+    extra_per_dim = int(cfg.get("bo_extra_iter_per_dim", 10))
+    return int(n0 + extra_per_dim * dim)
+
+
+def bo_epsilon(dim: int, cfg: dict) -> float:
+    base = float(cfg.get("bo_epsilon_base", 0.1))
+    ref_dim = int(cfg.get("bo_epsilon_ref_dim", 2))
+    return float(base * (2.0 ** (-(dim - ref_dim))))
+
+
 def render_bo_sh(df: int, cfg: dict, k: int) -> str:
     free_k = k
     outdir = f"../outputs/ndec{cfg['ndecisions']}nstep{cfg['nstep']}_{df}d"
@@ -1878,8 +1894,18 @@ def render_bo_sh(df: int, cfg: dict, k: int) -> str:
     lines.append(f"OUTDIR=\"{outdir}\"")
     lines.append("mkdir -p \"$OUTDIR\"")
     lines.append("")
-    lines.append(f"THRESH={cfg['thresh']}")
-    lines.append(f"MAX_ITER={cfg.get('max_iter', 30)}")
+    if cfg.get("adaptive_bo_budget", False):
+        n_init = bo_initial_sample_size(free_k)
+        n_max = bo_budget_nmax(free_k, cfg)
+        eps = bo_epsilon(free_k, cfg)
+        lines.append(f"BO_DIM={free_k}")
+        lines.append(f"N_INIT={n_init}")
+        lines.append(f"N_MAX={n_max}")
+        lines.append("MAX_ITER=$((N_MAX - N_INIT))")
+        lines.append(f"THRESH={eps:.16g}")
+    else:
+        lines.append(f"THRESH={cfg['thresh']}")
+        lines.append(f"MAX_ITER={cfg.get('max_iter', 30)}")
     lines.append("")
     lines.append("FINAL_RUN_DONE=0")
     lines.append("")

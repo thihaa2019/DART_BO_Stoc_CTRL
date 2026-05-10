@@ -40,5 +40,9 @@
       "end": 5,
       "sign": "neg"
     }
-  ]
+  ],
+  "adaptive_bo_budget": true,
+  "bo_extra_iter_per_dim": 10,
+  "bo_epsilon_base": 0.1,
+  "bo_epsilon_ref_dim": 2
 }

@@ -127,20 +127,59 @@ After each df finishes, the pipeline checks the final posterior-mean record:
 
 This lets the structural partition keep refining while the BO dimension does not grow for regions already fixed at zero.
 
+## Adaptive BO Budget
+
+Configs can enable dimension-dependent BO stopping with:
+
+```json
+"adaptive_bo_budget": true,
+"bo_extra_iter_per_dim": 10,
+"bo_epsilon_base": 0.1,
+"bo_epsilon_ref_dim": 2
+```
+
+When enabled, each generated `BO_<df>d.sh` uses the current BO dimension `d`, where `d` is the number of non-`fixed_zero` decision variables:
+
+```text
+n0(d)      = floor(6 * sqrt(d))
+nmax(d)    = n0(d) + 10d
+MAX_ITER   = nmax(d) - n0(d) = 10d
+epsilon(d) = 0.1 * 2^-(d - 2)
+THRESH     = epsilon(d)
+```
+
+So the generated BO loop runs more iterations and uses a stricter UCB-LCB stopping threshold as the BO dimension increases:
+
+```text
+d   n0   nmax   MAX_ITER   THRESH
+2    8     28      20      0.1
+3   10     40      30      0.05
+4   12     52      40      0.025
+5   13     63      50      0.0125
+6   14     74      60      0.00625
+7   15     85      70      0.003125
+8   16     96      80      0.0015625
+```
+
+If `"adaptive_bo_budget": false`, the pipeline falls back to the fixed config values:
+
+```json
+"thresh": 1e-1,
+"max_iter": 30
+```
+
 ## Split Metrics
 
-`choose_split` and `compute_split_metrics` evaluate candidate splits using average hourly RT adjustment on each side.
+`choose_split` and `compute_split_metrics` evaluate candidate splits using RT adjustment energy on each side.
 
 For a candidate split at hour `k` inside segment `[start, end]`:
 
 ```python
 lhs = B_96[:, start * 4 : k * 4].sum(axis=1) * 0.25
 rhs = B_96[:, k * 4 : end * 4].sum(axis=1) * 0.25
-lhs = lhs / (k - start)
-rhs = rhs / (end - k)
 ```
 
-So `lhs_mean`, `rhs_mean`, and `abs_mean_diff` are normalized by side length in hours. Longer sides are not automatically favored just because they contain more hours.
+So `lhs_mean`, `rhs_mean`, and `abs_mean_diff` are not divided by side length. The metric is the unnormalized side energy score.
 
 The reports are saved in each df folder:
 

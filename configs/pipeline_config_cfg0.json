@@ -4,7 +4,7 @@
   "nstep": 96,
   "ndecisions": 96,
   "maturity": 24,
-  "thresh": 1e-1,
+  "thresh": 0.1,
   "rt_adjustment_pen": 0.2,
   "da_pen": 0.0,
   "final_SoC_penalty": 100.0,
@@ -40,5 +40,9 @@
       "end": 23,
       "sign": "neg"
     }
-  ]
+  ],
+  "adaptive_bo_budget": true,
+  "bo_extra_iter_per_dim": 10,
+  "bo_epsilon_base": 0.1,
+  "bo_epsilon_ref_dim": 2
 }
