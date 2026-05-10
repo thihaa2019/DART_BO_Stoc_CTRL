@@ -256,6 +256,7 @@ def inherit_previous_results(
     prev_blocks: List[Dict],
     curr_blocks: List[Dict],
     cfg: dict,
+    prev_bda_blocks: List[Dict] | None = None,
 ) -> Tuple[int, int, int, int]:
     prev_outdir = os.path.join(base_dir, f"{prev_df}df", "outputs", f"ndec{cfg['ndecisions']}nstep{cfg['nstep']}_{prev_df}d")
     curr_outdir = os.path.join(base_dir, f"{curr_df}df", "outputs", f"ndec{cfg['ndecisions']}nstep{cfg['nstep']}_{curr_df}d")
@@ -271,6 +272,7 @@ def inherit_previous_results(
 
     prev_bda = import_bda_from_scripts(os.path.join(base_dir, f"{prev_df}df", "scripts"), f"B_DA_{prev_df}d_inherit")
     curr_bda = import_bda_from_scripts(os.path.join(base_dir, f"{curr_df}df", "scripts"), f"B_DA_{curr_df}d_inherit")
+    prev_bda_blocks = prev_blocks if prev_bda_blocks is None else prev_bda_blocks
 
     bda_atol = float(cfg.get("warm_start_bda_atol", 1e-10))
     existing_alpha_rows = []
@@ -302,9 +304,9 @@ def inherit_previous_results(
             continue
 
         try:
-            old_bda = call_make_bda(prev_bda.make_B_DA, old_alphas, cfg, prev_blocks)
+            old_bda = call_make_bda(prev_bda.make_B_DA, old_alphas, cfg, prev_bda_blocks)
             new_bda = call_make_bda(curr_bda.make_B_DA, new_alphas, cfg, curr_blocks)
-        except AssertionError:
+        except (AssertionError, ValueError):
             skipped_invalid += 1
             continue
 
@@ -2261,6 +2263,7 @@ def main():
             prev_blocks=blocks_for_next,
             curr_blocks=new_blocks_signed,
             cfg=cfg,
+            prev_bda_blocks=blocks,
         )
         print(
             f"[{next_df}d] Warm-start inheritance: "
