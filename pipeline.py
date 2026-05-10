@@ -157,21 +157,28 @@ def mark_zero_fixed_blocks_except_split(
     zero_tol: float,
     split_info: Dict,
 ) -> List[Dict]:
+    return mark_zero_fixed_blocks_except_splits(blocks, alphas, zero_tol, [split_info])
+
+
+def mark_zero_fixed_blocks_except_splits(
+    blocks: List[Dict],
+    alphas: List[float],
+    zero_tol: float,
+    split_infos: List[Dict],
+) -> List[Dict]:
     if len(blocks) != len(alphas):
         raise ValueError("Block count and alpha count do not match for zero-drop marking.")
 
-    split_start = split_info["segment_start"]
-    split_end = split_info["segment_end"]
-    split_type = split_info["segment_type"]
+    split_block_keys = {
+        (info["segment_start"], info["segment_end"])
+        for info in split_infos
+        if info["segment_type"] == "block"
+    }
 
     marked = []
     for block, alpha in zip(blocks, alphas):
         out = dict(block)
-        is_split_block = (
-            split_type == "block"
-            and block["start"] == split_start
-            and block["end"] == split_end
-        )
+        is_split_block = (block["start"], block["end"]) in split_block_keys
 
         if is_split_block:
             out.pop("fixed_zero", None)
@@ -530,92 +537,28 @@ def build_segments(blocks: List[Dict]) -> List[Tuple[int, int, str]]:
 
 
 def choose_split(B_96: np.ndarray, blocks: List[Dict]) -> Dict:
-    best = None
-    segments = build_segments(blocks)
-    for start, end, kind in segments:
-        split_points = list(range(start + 1, end))
-        # Allow creating a full 1-hour block from a 1-hour gap (e.g., 23-24 via k=24).
-        if kind == "gap" and (end - start) == 1:
-            split_points = [end]
-        if not split_points:
-            continue
-        for k in split_points:
-            lhs = B_96[:, start * 4 : k * 4].sum(axis=1) * 0.25
-            rhs = B_96[:, k * 4 : end * 4].sum(axis=1) * 0.25
-            lhs_mean = float(lhs.mean())
-            rhs_mean = float(rhs.mean())
-            mean_diff = lhs_mean - rhs_mean
-            abs_mean_diff = abs(mean_diff)
-            abs_diff_round = round(abs_mean_diff, 3)
-            left_len = k - start
-            right_len = end - k
-            longest_block = max(left_len, right_len)
-            if best is None:
-                best = {
-                    "split_at": k,
-                    "segment_start": start,
-                    "segment_end": end,
-                    "segment_type": kind,
-                    "mean_diff": float(mean_diff),
-                    "lhs_mean": float(lhs_mean),
-                    "rhs_mean": float(rhs_mean),
-                    "abs_mean_diff": float(abs_mean_diff),
-                    "abs_mean_diff_round": float(abs_diff_round),
-                    "longest_block": int(longest_block),
-                    "left_len": int(left_len),
-                    "right_len": int(right_len),
-                }
-                continue
-            if abs_diff_round > best["abs_mean_diff_round"]:
-                best = {
-                    "split_at": k,
-                    "segment_start": start,
-                    "segment_end": end,
-                    "segment_type": kind,
-                    "mean_diff": float(mean_diff),
-                    "lhs_mean": float(lhs_mean),
-                    "rhs_mean": float(rhs_mean),
-                    "abs_mean_diff": float(abs_mean_diff),
-                    "abs_mean_diff_round": float(abs_diff_round),
-                    "longest_block": int(longest_block),
-                    "left_len": int(left_len),
-                    "right_len": int(right_len),
-                }
-                continue
-            if abs_diff_round == best["abs_mean_diff_round"]:
-                if longest_block > best["longest_block"]:
-                    best = {
-                        "split_at": k,
-                        "segment_start": start,
-                        "segment_end": end,
-                        "segment_type": kind,
-                    "mean_diff": float(mean_diff),
-                    "lhs_mean": float(lhs_mean),
-                    "rhs_mean": float(rhs_mean),
-                    "abs_mean_diff": float(abs_mean_diff),
-                    "abs_mean_diff_round": float(abs_diff_round),
-                        "longest_block": int(longest_block),
-                        "left_len": int(left_len),
-                        "right_len": int(right_len),
-                    }
-                    continue
-                if longest_block == best["longest_block"] and left_len > best["left_len"]:
-                    best = {
-                        "split_at": k,
-                        "segment_start": start,
-                        "segment_end": end,
-                        "segment_type": kind,
-                        "mean_diff": float(mean_diff),
-                        "abs_mean_diff": float(abs_mean_diff),
-                        "abs_mean_diff_round": float(abs_diff_round),
-                        "longest_block": int(longest_block),
-                        "left_len": int(left_len),
-                        "right_len": int(right_len),
-                    }
-    if best is None:
-        raise RuntimeError("No valid split candidates found.")
-    return best
+    return choose_splits(B_96, blocks, 1)[0]
 
+
+def choose_splits(B_96: np.ndarray, blocks: List[Dict], split_count: int) -> List[Dict]:
+    if split_count <= 0:
+        raise ValueError("split_count must be positive.")
+
+    metrics = compute_split_metrics(B_96, blocks)
+    selected = []
+    used_segments = set()
+    for row in metrics:
+        key = (row["segment_start"], row["segment_end"], row["segment_type"])
+        if key in used_segments:
+            continue
+        selected.append(row)
+        used_segments.add(key)
+        if len(selected) == split_count:
+            break
+
+    if not selected:
+        raise RuntimeError("No valid split candidates found.")
+    return selected
 
 def compute_split_metrics(B_96: np.ndarray, blocks: List[Dict]) -> List[Dict]:
     rows = []
@@ -635,15 +578,30 @@ def compute_split_metrics(B_96: np.ndarray, blocks: List[Dict]) -> List[Dict]:
                 {
                     "segment": f"{start}-{end}({kind})",
                     "split_at": k,
+                    "segment_start": int(start),
+                    "segment_end": int(end),
+                    "segment_type": kind,
                     "lhs_mean": float(lhs.mean()),
                     "rhs_mean": float(rhs.mean()),
                     "lhs_std": float(lhs.std(ddof=1)),
                     "rhs_std": float(rhs.std(ddof=1)),
                     "mean_diff": float(mean_diff),
                     "abs_mean_diff": float(abs(mean_diff)),
+                    "abs_mean_diff_round": float(round(abs(mean_diff), 3)),
+                    "left_len": int(k - start),
+                    "right_len": int(end - k),
+                    "longest_block": int(max(k - start, end - k)),
                 }
             )
-    rows.sort(key=lambda r: r["abs_mean_diff"], reverse=True)
+    rows.sort(
+        key=lambda r: (
+            r["abs_mean_diff_round"],
+            r["longest_block"],
+            r["left_len"],
+            r["abs_mean_diff"],
+        ),
+        reverse=True,
+    )
     return rows
 
 
@@ -698,6 +656,13 @@ def apply_split(blocks: List[Dict], split_info: Dict) -> List[Dict]:
     return sorted(new_blocks, key=lambda b: b["start"])
 
 
+def apply_splits(blocks: List[Dict], split_infos: List[Dict]) -> List[Dict]:
+    new_blocks = normalize_blocks(blocks)
+    for split_info in split_infos:
+        new_blocks = apply_split(new_blocks, split_info)
+    return normalize_blocks(new_blocks)
+
+
 def block_mean(B_96: np.ndarray, start: int, end: int) -> float:
     return float((B_96[:, start * 4 : end * 4].sum(axis=1) * 0.25).mean())
 
@@ -733,7 +698,8 @@ def write_blocks_json(path: str, blocks: List[Dict]) -> None:
         json.dump(blocks, f, indent=2)
 
 
-def save_split_report(base_dir: str, df: int, metrics: List[Dict], split_info: Dict) -> Tuple[str, str]:
+def save_split_report(base_dir: str, df: int, metrics: List[Dict], split_info: Dict, split_infos: List[Dict] | None = None) -> Tuple[str, str]:
+    split_infos = [split_info] if split_infos is None else split_infos
     df_dir = os.path.join(base_dir, f"{df}df")
     os.makedirs(df_dir, exist_ok=True)
 
@@ -745,6 +711,7 @@ def save_split_report(base_dir: str, df: int, metrics: List[Dict], split_info: D
             {
                 "df": df,
                 "selected_split": split_info,
+                "selected_splits": split_infos,
                 "metrics": metrics,
             },
             f,
@@ -760,10 +727,11 @@ def save_split_report(base_dir: str, df: int, metrics: List[Dict], split_info: D
                 f"lhs_std={row['lhs_std']:.6f} rhs_std={row['rhs_std']:.6f} "
                 f"mean_diff={row['mean_diff']:.6f} abs_diff={row['abs_mean_diff']:.6f}\n"
             )
-        f.write(
-            f"[{df}d] Split at hour {split_info['split_at']} "
-            f"(segment {split_info['segment_start']}-{split_info['segment_end']}, {split_info['segment_type']})\n"
-        )
+        for i, info in enumerate(split_infos, start=1):
+            f.write(
+                f"[{df}d] Split #{i} at hour {info['split_at']} "
+                f"(segment {info['segment_start']}-{info['segment_end']}, {info['segment_type']})\n"
+            )
 
     return json_path, txt_path
 
@@ -2134,7 +2102,8 @@ def main():
         print(f"Next step: (cd {os.path.join(base_dir, f'{start_df}df', 'scripts')} && bash {next_script})")
         return
 
-    for df in range(start_df, max_df):
+    df = start_df
+    while df < max_df:
         df_dir = os.path.join(base_dir, f"{df}df")
         scripts_dir = os.path.join(df_dir, "scripts")
         outdir = os.path.join(df_dir, "outputs", f"ndec{cfg['ndecisions']}nstep{cfg['nstep']}_{df}d")
@@ -2228,28 +2197,45 @@ def main():
                 f"mean_diff={row['mean_diff']:.6f} abs_diff={row['abs_mean_diff']:.6f}"
             )
 
-        split_info = choose_split(B_96, blocks)
-        print(f"[{df}d] Split at hour {split_info['split_at']} (segment {split_info['segment_start']}-{split_info['segment_end']}, {split_info['segment_type']})")
-        report_json, report_txt = save_split_report(base_dir, df, metrics, split_info)
+        split_count = int(cfg.get("splits_per_round", 2))
+        split_infos = choose_splits(B_96, blocks, split_count)
+        split_info = split_infos[0]
+        for i, info in enumerate(split_infos, start=1):
+            print(
+                f"[{df}d] Split #{i} at hour {info['split_at']} "
+                f"(segment {info['segment_start']}-{info['segment_end']}, {info['segment_type']})"
+            )
+        report_json, report_txt = save_split_report(base_dir, df, metrics, split_info, split_infos)
         print(f"[{df}d] Saved split metrics: {report_txt}")
         print(f"[{df}d] Saved split metrics (json): {report_json}")
 
-        blocks_for_next = mark_zero_fixed_blocks_except_split(
+        blocks_for_next = mark_zero_fixed_blocks_except_splits(
             blocks,
             final_postmean_rec["alphas"],
             zero_tol,
-            split_info,
+            split_infos,
         )
         zero_fixed_count = sum(1 for b in blocks_for_next if b.get("fixed_zero"))
         print(f"[{df}d] Zero-fixed untouched blocks for next dfs: {zero_fixed_count}/{len(blocks_for_next)}")
 
-        new_blocks = apply_split(blocks_for_next, split_info)
+        new_blocks = apply_splits(blocks_for_next, split_infos)
         new_blocks_signed = assign_block_signs(B_96, B_DA_vec, new_blocks, cfg)
         new_blocks_signed = normalize_blocks(new_blocks_signed)
 
-        next_df = df + 1
+        next_df = len(new_blocks_signed)
+        if next_df <= df:
+            raise RuntimeError(f"Expected split refinement to increase df, got {df} -> {next_df}.")
         next_df_dir = os.path.join(base_dir, f"{next_df}df")
         if os.path.exists(next_df_dir):
+            existing_blocks_path = os.path.join(next_df_dir, "blocks.json")
+            if os.path.exists(existing_blocks_path):
+                with open(existing_blocks_path, "r") as f:
+                    existing_blocks = normalize_blocks(json.load(f))
+                if existing_blocks != new_blocks_signed:
+                    raise RuntimeError(
+                        f"Existing {next_df}df blocks differ from the two-split refinement. "
+                        f"Use a fresh --base directory or remove/regenerate {next_df_dir}."
+                    )
             next_scripts = os.path.join(next_df_dir, "scripts")
             ensure_print_profits(next_scripts, len(new_blocks_signed))
             print(f"[OK] Updated print_profits.py in {next_scripts}.")
@@ -2278,6 +2264,7 @@ def main():
         print(f"Next step: (cd {os.path.join(base_dir, f'{next_df}df', 'scripts')} && bash {next_script})")
         kept_profit_file, kept_profit_val = cleanup_outputs_keep_best(outdir)
         print(f"[{df}d] Cleanup complete: kept {kept_profit_file} (profit={kept_profit_val:.6f})")
+        df = next_df
 
 
 if __name__ == "__main__":

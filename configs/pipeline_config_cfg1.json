@@ -4,7 +4,7 @@
   "nstep": 96,
   "ndecisions": 96,
   "maturity": 24,
-  "thresh": 1e-1,
+  "thresh": 0.1,
   "rt_adjustment_pen": 0.2,
   "da_pen": 0.0,
   "final_SoC_penalty": 100.0,
@@ -40,5 +40,6 @@
       "end": 20,
       "sign": "neg"
     }
-  ]
+  ],
+  "splits_per_round": 2
 }

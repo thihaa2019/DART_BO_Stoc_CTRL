@@ -40,5 +40,6 @@
       "end": 5,
       "sign": "neg"
     }
-  ]
+  ],
+  "splits_per_round": 2
 }
