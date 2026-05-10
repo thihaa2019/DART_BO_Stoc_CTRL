@@ -1,0 +1,44 @@
+{
+  "start_df": 2,
+  "max_df": 10,
+  "nstep": 96,
+  "ndecisions": 96,
+  "maturity": 24,
+  "thresh": 1e-06,
+  "rt_adjustment_pen": 0.2,
+  "da_pen": 0.0,
+  "final_SoC_penalty": 100.0,
+  "initialSoC": 1.0,
+  "terminal_SoCtarget": 1.0,
+  "bmax": 1.0,
+  "imax": 4.0,
+  "i0": 1.0,
+  "x0_seed": 1,
+  "ou_seed": 1,
+  "one_step_seed": 1,
+  "design_seed": 1,
+  "nsim": 10000,
+  "nsim_design": 100,
+  "batch_size": 10,
+  "fence": 10,
+  "ou_alpha": 0.1,
+  "ou_sigma": 0.05,
+  "ou_sigma0": 0.25,
+  "charging_eff": 0.95,
+  "include_0df": false,
+  "drop_zero_tol": 1e-12,
+  "bo_acq_samples": 256,
+  "max_iter": 30,
+  "initial_blocks": [
+    {
+      "start": 0,
+      "end": 3,
+      "sign": "pos"
+    },
+    {
+      "start": 3,
+      "end": 5,
+      "sign": "neg"
+    }
+  ]
+}
