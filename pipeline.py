@@ -1875,9 +1875,11 @@ def bo_budget_nmax(dim: int, cfg: dict) -> int:
 
 
 def bo_epsilon(dim: int, cfg: dict) -> float:
+    if dim <= 0:
+        raise ValueError("BO decision dimension must be positive.")
     base = float(cfg.get("bo_epsilon_base", 0.1))
     ref_dim = int(cfg.get("bo_epsilon_ref_dim", 2))
-    return float(base * (2.0 ** (-(dim - ref_dim))))
+    return float(base * np.sqrt(ref_dim / float(dim)))
 
 
 def render_bo_sh(df: int, cfg: dict, k: int) -> str:

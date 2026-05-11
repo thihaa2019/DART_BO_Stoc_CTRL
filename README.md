@@ -144,21 +144,21 @@ When enabled, each generated `BO_<df>d.sh` uses the current BO dimension `d`, wh
 n0(d)      = floor(6 * sqrt(d))
 nmax(d)    = n0(d) + 10d
 MAX_ITER   = nmax(d) - n0(d) = 10d
-epsilon(d) = 0.1 * 2^-(d - 2)
+epsilon(d) = 0.1 * sqrt(2 / d)
 THRESH     = epsilon(d)
 ```
 
-So the generated BO loop runs more iterations and uses a stricter UCB-LCB stopping threshold as the BO dimension increases:
+So the generated BO loop runs more iterations and uses a slowly stricter UCB-LCB stopping threshold as the BO dimension increases:
 
 ```text
 d   n0   nmax   MAX_ITER   THRESH
-2    8     28      20      0.1
-3   10     40      30      0.05
-4   12     52      40      0.025
-5   13     63      50      0.0125
-6   14     74      60      0.00625
-7   15     85      70      0.003125
-8   16     96      80      0.0015625
+2    8     28      20      0.100000
+3   10     40      30      0.081650
+4   12     52      40      0.070711
+5   13     63      50      0.063246
+6   14     74      60      0.057735
+7   15     85      70      0.053452
+8   16     96      80      0.050000
 ```
 
 If `"adaptive_bo_budget": false`, the pipeline falls back to the fixed config values:
