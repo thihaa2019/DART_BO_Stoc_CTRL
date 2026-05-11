@@ -22,42 +22,17 @@ activate_pipeline_env () {
     conda activate "$PIPELINE_ENV"
 }
 
-has_results_index () {
-    local outdir="$1"
-    [[ -f "$outdir/results_index.pkl" ]]
-}
-
-has_final_postmean () {
-    local outdir="$1"
-    python3 - "$outdir" <<'PY'
-import os
-import pickle
-import sys
-
-outdir = sys.argv[1]
-path = os.path.join(outdir, "results_index.pkl")
-if not os.path.exists(path):
-    raise SystemExit(1)
-with open(path, "rb") as f:
-    index = pickle.load(f)
-records = index.get("records", {}) if isinstance(index, dict) else {}
-final_id = index.get("final_postmean_id") if isinstance(index, dict) else None
-if final_id is None or str(final_id) not in records:
-    raise SystemExit(1)
-rec = records[str(final_id)]
-if "profit" not in rec:
-    raise SystemExit(1)
-raise SystemExit(0)
-PY
-}
-
 run_pipeline () {
+    local start_df="$1"
+    local max_df="$2"
+    shift 2
+
     activate_pipeline_env
     python3 auto_drop_zeros/pipeline.py \
         --config "$CONFIG" \
         --base "$BASE" \
-        --start-df "$START_DF" \
-        --max-df "$END_DF" "$@"
+        --start-df "$start_df" \
+        --max-df "$max_df" "$@"
 }
 
 echo "======================================================="
@@ -68,13 +43,11 @@ echo "START_DF = $START_DF"
 echo "END_DF   = $END_DF"
 echo "======================================================="
 
-run_pipeline --init
+run_pipeline "$START_DF" "$END_DF" --init
 
 df="$START_DF"
 while [[ "$df" -le "$END_DF" ]]; do
     scripts_dir="$BASE/${df}df/scripts"
-    outdir="$BASE/${df}df/outputs/ndec96nstep96_${df}d"
-
     if [[ ! -d "$scripts_dir" ]]; then
         echo "ERROR: missing scripts dir: $scripts_dir"
         echo "Expected the previous pipeline split to generate ${df}df."
@@ -84,31 +57,27 @@ while [[ "$df" -le "$END_DF" ]]; do
     echo "======================================================="
     echo "[${df}df] Running sampler/initial ShadowGP if needed"
     echo "======================================================="
-    if has_results_index "$outdir"; then
-        echo "[${df}df] results_index.pkl exists; skipping initial sampler."
-    else
-        (cd "$scripts_dir" && bash run_shadowgp_trainer.sh)
-    fi
+    (cd "$scripts_dir" && bash run_shadowgp_trainer.sh)
 
     echo "======================================================="
-    echo "[${df}df] Running BO loop/final postmean if needed"
+    echo "[${df}df] Running BO loop/final postmean"
     echo "======================================================="
-    if has_final_postmean "$outdir"; then
-        echo "[${df}df] final_postmean_id exists; skipping BO loop."
+    bo_script="BO_${df}d.sh"
+    if [[ ! -f "$scripts_dir/$bo_script" ]]; then
+        echo "ERROR: missing BO script: $scripts_dir/$bo_script"
+        exit 1
+    fi
+    if (cd "$scripts_dir" && bash "$bo_script"); then
+        echo "=== [${df}d] BO finished ==="
     else
-        bo_script="BO_${df}d.sh"
-        if [[ ! -f "$scripts_dir/$bo_script" ]]; then
-            echo "ERROR: missing BO script: $scripts_dir/$bo_script"
-            exit 1
-        fi
-        (cd "$scripts_dir" && bash "$bo_script")
+        echo "=== [${df}d] BO terminated early (no more candidates) ==="
     fi
 
     if [[ "$df" -lt "$END_DF" ]]; then
         echo "======================================================="
         echo "[${df}df] Splitting and generating next df"
         echo "======================================================="
-        run_pipeline
+        run_pipeline "$df" "$((df + 1))"
     fi
 
     df=$((df + 2))

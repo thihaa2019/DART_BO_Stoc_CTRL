@@ -630,6 +630,10 @@ def apply_split(blocks: List[Dict], split_info: Dict) -> List[Dict]:
                 base = {"sign": b.get("sign")} if b.get("sign") else {}
                 if b.get("fixed_zero"):
                     base["fixed_zero"] = True
+                if b.get("split_child"):
+                    base["split_child"] = True
+                if b.get("parent_sign"):
+                    base["parent_sign"] = b["parent_sign"]
                 new_blocks.append({"start": b["start"], "end": b["end"], **base})
         return sorted(new_blocks, key=lambda b: b["start"])
 
@@ -657,10 +661,10 @@ def apply_split(blocks: List[Dict], split_info: Dict) -> List[Dict]:
 
 
 def apply_splits(blocks: List[Dict], split_infos: List[Dict]) -> List[Dict]:
-    new_blocks = normalize_blocks(blocks)
+    new_blocks = [dict(b) for b in blocks]
     for split_info in split_infos:
         new_blocks = apply_split(new_blocks, split_info)
-    return normalize_blocks(new_blocks)
+    return sorted(new_blocks, key=lambda b: b["start"])
 
 
 def block_mean(B_96: np.ndarray, start: int, end: int) -> float:
@@ -2116,6 +2120,15 @@ def main():
 
         # load best policy
         k = len(blocks)
+        index = load_results_index(outdir)
+        records = index.get("records", {})
+        final_id = index.get("final_postmean_id")
+        if final_id is None or str(final_id) not in records or "profit" not in records[str(final_id)]:
+            script_name = f"BO_{df}d.sh" if decision_block_indices(blocks) else "run_shadowgp_trainer.sh"
+            print(f"[STOP] Missing final posterior-mean evaluation for {df}d: {os.path.join(outdir, RESULTS_INDEX_FILE)}")
+            print(f"Run: (cd {scripts_dir} && bash {script_name})")
+            return
+
         best_alphas, best_profit = load_best_profit(outdir, k)
         print(f"[{df}d] Best profit: {best_profit:.6f} alphas={best_alphas}")
         final_postmean_rec = get_final_postmean_record(outdir, k)
