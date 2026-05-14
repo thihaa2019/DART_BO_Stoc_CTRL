@@ -27,7 +27,7 @@
   "charging_eff": 0.95,
   "include_0df": false,
   "drop_zero_tol": 1e-12,
-  "curve_file": "cubic_spline.pkl",
+  "curve_file": "cubic_spline_evening_peak.pkl",
   "bo_acq_samples": 256,
   "max_iter": 30,
   "initial_blocks": [
@@ -42,7 +42,7 @@
       "sign": "neg"
     }
   ],
-  "adaptive_bo_budget": true,
+  "adaptive_bo_budget": false,
   "bo_extra_iter_per_dim": 10,
   "bo_epsilon_base": 0.1,
   "bo_epsilon_ref_dim": 2

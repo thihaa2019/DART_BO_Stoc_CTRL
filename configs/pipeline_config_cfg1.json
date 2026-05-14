@@ -27,17 +27,18 @@
   "charging_eff": 0.95,
   "include_0df": false,
   "drop_zero_tol": 1e-12,
+  "curve_file": "cubic_spline.pkl",
   "bo_acq_samples": 256,
   "max_iter": 30,
   "initial_blocks": [
     {
       "start": 7,
-      "end": 12,
+      "end": 14,
       "sign": "pos"
     },
     {
       "start": 16,
-      "end": 20,
+      "end": 23,
       "sign": "neg"
     }
   ],

@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-BASE_CONFIG="${ROOT_DIR}/auto_drop_zeros/pipeline_config.json"
+BASE_CONFIG="${ROOT_DIR}/auto_drop_zeros/configs/pipeline_config_cfg1.json"
 
 START_DF="${1:-2}"
 END_DF="${2:-10}"

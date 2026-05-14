@@ -17,7 +17,9 @@ ZERO_TOL = 1e-12
 
 def load_config(path: str) -> dict:
     with open(path, "r") as f:
-        return json.load(f)
+        cfg = json.load(f)
+    cfg["_config_dir"] = os.path.dirname(os.path.abspath(path))
+    return cfg
 
 
 def find_asset_source(base_dir: str, fname: str, prev_scripts: str = "") -> str:
@@ -32,6 +34,39 @@ def find_asset_source(base_dir: str, fname: str, prev_scripts: str = "") -> str:
         if src and os.path.exists(src):
             return src
     return ""
+
+
+def configured_curve_path(cfg: dict) -> str:
+    return str(cfg.get("curve_path") or cfg.get("curve_file") or "cubic_spline.pkl")
+
+
+def configured_curve_name(cfg: dict) -> str:
+    return os.path.basename(configured_curve_path(cfg))
+
+
+def find_configured_curve_source(base_dir: str, cfg: dict, prev_scripts: str = "") -> str:
+    curve_path = configured_curve_path(cfg)
+    curve_name = os.path.basename(curve_path)
+    script_auto_dir = os.path.dirname(os.path.abspath(__file__))
+    candidates = []
+    if os.path.isabs(curve_path):
+        candidates.append(curve_path)
+    else:
+        cfg_dir = cfg.get("_config_dir", "")
+        if cfg_dir:
+            candidates.append(os.path.join(cfg_dir, curve_path))
+        if prev_scripts:
+            candidates.append(os.path.join(prev_scripts, curve_name))
+        candidates.append(os.path.join(base_dir, "auto_drop_zeros", curve_name))
+        candidates.append(os.path.join(base_dir, "auto", curve_name))
+        candidates.append(os.path.join(base_dir, curve_path))
+        candidates.append(os.path.join(base_dir, curve_name))
+        candidates.append(os.path.join(script_auto_dir, curve_path))
+        candidates.append(os.path.join(script_auto_dir, curve_name))
+    for src in candidates:
+        if src and os.path.exists(src):
+            return src
+    raise FileNotFoundError(f"Configured curve not found: {curve_path}")
 
 
 def encode_tag(x: float) -> str:
@@ -550,68 +585,32 @@ def choose_split(B_96: np.ndarray, blocks: List[Dict]) -> Dict:
             left_len = k - start
             right_len = end - k
             longest_block = max(left_len, right_len)
+            candidate = {
+                "split_at": k,
+                "segment_start": start,
+                "segment_end": end,
+                "segment_type": kind,
+                "mean_diff": float(mean_diff),
+                "lhs_mean": float(lhs_mean),
+                "rhs_mean": float(rhs_mean),
+                "abs_mean_diff": float(abs_mean_diff),
+                "abs_mean_diff_round": float(abs_diff_round),
+                "longest_block": int(longest_block),
+                "left_len": int(left_len),
+                "right_len": int(right_len),
+            }
             if best is None:
-                best = {
-                    "split_at": k,
-                    "segment_start": start,
-                    "segment_end": end,
-                    "segment_type": kind,
-                    "mean_diff": float(mean_diff),
-                    "lhs_mean": float(lhs_mean),
-                    "rhs_mean": float(rhs_mean),
-                    "abs_mean_diff": float(abs_mean_diff),
-                    "abs_mean_diff_round": float(abs_diff_round),
-                    "longest_block": int(longest_block),
-                    "left_len": int(left_len),
-                    "right_len": int(right_len),
-                }
+                best = candidate
                 continue
             if abs_diff_round > best["abs_mean_diff_round"]:
-                best = {
-                    "split_at": k,
-                    "segment_start": start,
-                    "segment_end": end,
-                    "segment_type": kind,
-                    "mean_diff": float(mean_diff),
-                    "lhs_mean": float(lhs_mean),
-                    "rhs_mean": float(rhs_mean),
-                    "abs_mean_diff": float(abs_mean_diff),
-                    "abs_mean_diff_round": float(abs_diff_round),
-                    "longest_block": int(longest_block),
-                    "left_len": int(left_len),
-                    "right_len": int(right_len),
-                }
+                best = candidate
                 continue
             if abs_diff_round == best["abs_mean_diff_round"]:
                 if longest_block > best["longest_block"]:
-                    best = {
-                        "split_at": k,
-                        "segment_start": start,
-                        "segment_end": end,
-                        "segment_type": kind,
-                    "mean_diff": float(mean_diff),
-                    "lhs_mean": float(lhs_mean),
-                    "rhs_mean": float(rhs_mean),
-                    "abs_mean_diff": float(abs_mean_diff),
-                    "abs_mean_diff_round": float(abs_diff_round),
-                        "longest_block": int(longest_block),
-                        "left_len": int(left_len),
-                        "right_len": int(right_len),
-                    }
+                    best = candidate
                     continue
                 if longest_block == best["longest_block"] and left_len > best["left_len"]:
-                    best = {
-                        "split_at": k,
-                        "segment_start": start,
-                        "segment_end": end,
-                        "segment_type": kind,
-                        "mean_diff": float(mean_diff),
-                        "abs_mean_diff": float(abs_mean_diff),
-                        "abs_mean_diff_round": float(abs_diff_round),
-                        "longest_block": int(longest_block),
-                        "left_len": int(left_len),
-                        "right_len": int(right_len),
-                    }
+                    best = candidate
     if best is None:
         raise RuntimeError("No valid split candidates found.")
     return best
@@ -1503,8 +1502,10 @@ def render_trainer_py(blocks: List[Dict], df: int, cfg: dict) -> str:
     lines.append("    # tags for filenames")
     lines.extend(tag_lines)
     lines.append("")
-    lines.append("    # load spline")
-    lines.append("    spline_path = os.path.join(AUTO_DIR, 'cubic_spline.pkl')")
+    curve_name = configured_curve_name(cfg)
+    lines.append("    # load configured price curve")
+    lines.append(f"    spline_path = os.path.join(AUTO_DIR, {curve_name!r})")
+    lines.append("    print(f\"curve                 = {os.path.basename(spline_path)}\")")
     lines.append("    with open(spline_path, 'rb') as f:")
     lines.append("        spline = pickle.load(f)")
     lines.append("    def RT_M_func(t):  return spline['cs'](t)  / 20")
@@ -2033,11 +2034,16 @@ def generate_df_folder(base_dir: str, df: int, prev_df: int, blocks: List[Dict],
     os.makedirs(scripts_dir, exist_ok=True)
 
     prev_scripts = os.path.join(base_dir, f"{prev_df}df", "scripts")
-    for fname in ["main.py", "cubic_spline.pkl"]:
+    for fname in ["main.py"]:
         src = find_asset_source(base_dir, fname, prev_scripts=prev_scripts)
         dst = os.path.join(scripts_dir, fname)
         if src and not os.path.exists(dst):
             shutil.copy2(src, dst)
+    curve_name = configured_curve_name(cfg)
+    curve_src = find_configured_curve_source(base_dir, cfg, prev_scripts=prev_scripts)
+    curve_dst = os.path.join(scripts_dir, curve_name)
+    if not os.path.exists(curve_dst):
+        shutil.copy2(curve_src, curve_dst)
 
     blocks = normalize_blocks(blocks)
     k = len(blocks)
@@ -2082,11 +2088,16 @@ def ensure_zero_df(base_dir: str, cfg: dict) -> None:
     scripts_dir = os.path.join(df_dir, "scripts")
     os.makedirs(scripts_dir, exist_ok=True)
 
-    for fname in ["main.py", "cubic_spline.pkl"]:
+    for fname in ["main.py"]:
         src = find_asset_source(base_dir, fname)
         dst = os.path.join(scripts_dir, fname)
         if src and not os.path.exists(dst):
             shutil.copy2(src, dst)
+    curve_name = configured_curve_name(cfg)
+    curve_src = find_configured_curve_source(base_dir, cfg)
+    curve_dst = os.path.join(scripts_dir, curve_name)
+    if not os.path.exists(curve_dst):
+        shutil.copy2(curve_src, curve_dst)
 
     blocks: List[Dict] = []
     with open(os.path.join(df_dir, "blocks.json"), "w") as f:
@@ -2104,14 +2115,19 @@ def ensure_zero_df(base_dir: str, cfg: dict) -> None:
     print(f"[OK] Initialized 0df (RT-only, B_DA=0) in {df_dir}")
 
 
-def ensure_auto_assets(base_dir: str) -> None:
+def ensure_auto_assets(base_dir: str, cfg: dict) -> None:
     auto_dir = os.path.join(base_dir, "auto_drop_zeros")
     os.makedirs(auto_dir, exist_ok=True)
-    for fname in ["main.py", "cubic_spline.pkl"]:
+    for fname in ["main.py"]:
         src = find_asset_source(base_dir, fname)
         dst = os.path.join(auto_dir, fname)
         if src and not os.path.exists(dst):
             shutil.copy2(src, dst)
+    curve_name = configured_curve_name(cfg)
+    curve_src = find_configured_curve_source(base_dir, cfg)
+    curve_dst = os.path.join(auto_dir, curve_name)
+    if not os.path.exists(curve_dst):
+        shutil.copy2(curve_src, curve_dst)
 
 
 def ensure_print_profits(scripts_dir: str, k: int) -> None:
@@ -2134,7 +2150,7 @@ def main():
     base_dir = args.base
     start_df = args.start_df if args.start_df is not None else cfg["start_df"]
     max_df = args.max_df if args.max_df is not None else cfg["max_df"]
-    ensure_auto_assets(base_dir)
+    ensure_auto_assets(base_dir, cfg)
     if cfg.get("include_0df", False):
         ensure_zero_df(base_dir, cfg)
 
@@ -2184,8 +2200,8 @@ def main():
         auto_dir = os.path.join(base_dir, "auto_drop_zeros")
         main_mod, bda_mod = load_main_and_bda(scripts_dir, auto_dir)
 
-        # spline
-        spline_path = os.path.join(auto_dir, "cubic_spline.pkl")
+        # configured price curve
+        spline_path = os.path.join(auto_dir, configured_curve_name(cfg))
         with open(spline_path, "rb") as f:
             spline = pickle.load(f)
         def RT_M_func(t):  return spline['cs'](t) / 20
